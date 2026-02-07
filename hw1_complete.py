@@ -1,15 +1,12 @@
 #!/usr/bin/env python
 
-# Reduce TensorFlow log noise (optional; remove if you want full logs)
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # 0=all, 1=no INFO, 2=no WARNING, 3=errors only
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
-# TensorFlow and tf.keras
 import tensorflow as tf
 import keras
 from keras import Input, layers, Sequential
 
-# Helper libraries
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
@@ -20,10 +17,12 @@ print(f"TensorFlow Version: {tf.__version__}")
 print(f"Keras Version: {keras.__version__}")
 
 
-##
+# ---------------------------------------------------------------------------
+# Model builder functions
+# ---------------------------------------------------------------------------
 
 def build_model1():
-  """Fully-connected: Flatten + 3 Dense(128, leaky_relu) + Dense(10)."""
+  """Builds a four-layer fully-connected model: flatten, three Dense(128) with leaky ReLU, Dense(10) logits."""
   model = Sequential([
       layers.Flatten(input_shape=(32, 32, 3)),
       layers.Dense(128, activation='leaky_relu'),
@@ -40,7 +39,7 @@ def build_model1():
 
 
 def build_model2():
-  """CNN: Conv2D(32,s2) -> BN -> Conv2D(64,s2) -> BN -> 4x (Conv2D(128) -> BN) -> Flatten -> Dense(10)."""
+  """Builds a CNN: two strided Conv2D blocks (32, 64 filters), four Conv2D(128) blocks with BatchNorm, Flatten, Dense(10)."""
   model = Sequential([
       layers.Conv2D(32, (3, 3), strides=(2, 2), padding='same', activation='relu', input_shape=(32, 32, 3)),
       layers.BatchNormalization(),
@@ -66,7 +65,7 @@ def build_model2():
 
 
 def build_model3():
-  """Same as model2 but all conv layers are SeparableConv2D (to match test spec)."""
+  """Builds a CNN with the same topology as model2 using depthwise-separable convolutions and BatchNorm."""
   model = Sequential([
       layers.SeparableConv2D(32, (3, 3), strides=(2, 2), padding='same', activation='relu', input_shape=(32, 32, 3)),
       layers.BatchNormalization(),
@@ -92,7 +91,7 @@ def build_model3():
 
 
 def build_model50k():
-  """Best model with no more than 50,000 parameters (for building/training in main)."""
+  """Builds a CNN constrained to at most 50,000 parameters using Conv2D, SeparableConv2D, GlobalAveragePooling2D, and Dense layers."""
   model = Sequential([
       layers.Conv2D(32, (3, 3), strides=(2, 2), padding='same', activation='relu', input_shape=(32, 32, 3)),
       layers.BatchNormalization(),
@@ -112,27 +111,23 @@ def build_model50k():
   return model
 
 
-# no training or dataset construction should happen above this line
-# also, be careful not to unindent below here, or the code be executed on import
 if __name__ == '__main__':
 
-  ########################################
-  ## Load the CIFAR10 data set
+  # Load CIFAR-10 and normalize pixel values to [0, 1].
   (train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.cifar10.load_data()
   train_labels = train_labels.squeeze()
   test_labels = test_labels.squeeze()
   train_images = train_images.astype(np.float32) / 255.0
   test_images = test_images.astype(np.float32) / 255.0
 
-  # Split training into train and validation (e.g. last 10% for validation)
+  # Reserve the last 10% of the training set for validation.
   n_val = int(0.1 * len(train_images))
   val_images = train_images[-n_val:]
   val_labels = train_labels[-n_val:]
   train_images = train_images[:-n_val]
   train_labels = train_labels[:-n_val]
-  ########################################
 
-  ## Build and train model 1
+  # Build, compile, and train the fully-connected model (model1) for 30 epochs.
   model1 = build_model1()
   model1.summary()
   model1.fit(train_images, train_labels, epochs=30, validation_data=(val_images, val_labels))
@@ -140,26 +135,31 @@ if __name__ == '__main__':
   print('Model1 val:', model1.evaluate(val_images, val_labels))
   print('Model1 test:', model1.evaluate(test_images, test_labels))
 
-  ## Build, compile, and train model 2
+  # Build, compile, and train the convolutional model (model2) for 30 epochs; save weights to disk.
   model2 = build_model2()
   model2.summary()
   model2.fit(train_images, train_labels, epochs=30, validation_data=(val_images, val_labels))
   print('Model2 train/val/test:', model2.evaluate(train_images, train_labels), model2.evaluate(val_images, val_labels), model2.evaluate(test_images, test_labels))
+  model2.save_weights('model2.h5')
 
-  ## Build, compile, and train model 3 (separable convolutions)
+  # Build, compile, and train the separable-convolution model (model3) for 30 epochs.
   model3 = build_model3()
   model3.summary()
   model3.fit(train_images, train_labels, epochs=30, validation_data=(val_images, val_labels))
   print('Model3 train/val/test:', model3.evaluate(train_images, train_labels), model3.evaluate(val_images, val_labels), model3.evaluate(test_images, test_labels))
 
-  ## Optional: load and classify a test image (save as test_image_<classname>.png/jpg)
-  # class_names = ['airplane','automobile','bird','cat','deer','dog','frog','horse','ship','truck']
-  # test_img = np.array(keras.utils.load_img('./test_image_cat.png', grayscale=False, color_mode='rgb', target_size=(32,32)))
-  # test_img = test_img.astype(np.float32) / 255.0
-  # pred = model2.predict(np.expand_dims(test_img, 0))
-  # print('Predicted class:', class_names[np.argmax(pred)])
+  # Load the custom test image, normalize to [0, 1], and run inference with model2.
+  class_names = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+  test_img = np.array(keras.utils.load_img(
+      './toyota.jpg',
+      color_mode='rgb',
+      target_size=(32, 32)))
+  test_img = test_img.astype(np.float32) / 255.0
+  pred = model2.predict(np.expand_dims(test_img, 0), verbose=0)
+  predicted_class = class_names[np.argmax(pred[0])]
+  print('Test image predicted class:', predicted_class)
 
-  ## Best model (<=50k params), train and save
+  # Build, train, and save the parameter-constrained model (≤50k parameters) to best_model.h5.
   model50k = build_model50k()
   model50k.summary()
   assert model50k.count_params() <= 50000, 'Model must have at most 50k params'
@@ -167,5 +167,3 @@ if __name__ == '__main__':
   model50k.save('best_model.h5')
   loss, acc = model50k.evaluate(test_images, test_labels)
   print('Best model test accuracy:', acc)
-
-  # plt.show()  # Commented out so script runs without intervention
